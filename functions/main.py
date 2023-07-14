@@ -8,6 +8,7 @@ from firebase_functions.options import MemoryOption
 from matplotlib import pyplot as plt
 from scipy import signal
 from scipy.interpolate import PchipInterpolator, CubicSpline
+from configparser import InterpolationError
 
 cred = credentials.Certificate("./serviceAccountKey.json")
 firebase_admin.initialize_app(cred, {'storageBucket': 'bsicos-app.appspot.com'})
@@ -56,7 +57,7 @@ def remove_impulse_artifacts(sig):
     return output
 
 
-def ppg_pulse_detection(sig, sig_fs, plotflag):
+def ppg_pulse_detection(sig, sig_fs, plotflag, fine_search):
     # Linear-phase FIR filter
     ntaps = 3 * sig_fs + 1  # order + 1
     lpd_fp = 7.9
@@ -77,18 +78,41 @@ def ppg_pulse_detection(sig, sig_fs, plotflag):
     refract = 250e-03
     tao_rr = 1
     thr_incidences = 1.5
-    n_d, threshold = adaptive_thresholding(sig_filtered, sig_fs, alfa, refract, tao_rr, thr_incidences)
+    n_d_int, threshold = adaptive_thresholding(sig_filtered, sig_fs, alfa, refract, tao_rr, thr_incidences)
+    
     if plotflag:
         ax1 = plt.subplot(2, 1, 1)
         ax1.plot(np.arange(0, sig.size/sig_fs, 1/sig_fs), sig)
-        ax1.plot(n_d / sig_fs, sig[n_d.astype(int)], 'ro', label='nD')
+        ax1.plot(n_d_int / sig_fs, sig[n_d_int], 'ro', label='nD')
         ax2 = plt.subplot(2, 1, 2, sharex=ax1)
         ax2.plot(np.arange(0, sig_filtered.size/sig_fs, 1/sig_fs), sig_filtered, label='signal')
         ax2.plot(np.arange(0, sig_filtered.size/sig_fs, 1/sig_fs), threshold, label='threshold')
-        ax2.plot(n_d / sig_fs, sig_filtered[n_d.astype(int)], 'ro', label='nD')
+        ax2.plot(n_d_int / sig_fs, sig_filtered[n_d_int], 'ro', label='nD')
         plt.show()
 
-    return np.divide(n_d, sig_fs)
+    if fine_search:
+        n_d = np.empty(len(n_d_int))
+        n_d.fill(np.nan)
+        fsi = 1000  # Hz
+        t = np.arange(0, (len(sig) - 1) / sig_fs + 1 / sig_fs, 1 / sig_fs)
+        w_nA = 250e-3
+        w_nB = 150e-3
+        n_d_int[n_d_int < 0] = 0
+        wdw_n_d1 = n_d_int - round((w_nB / 2) * sig_fs)
+        wdw_n_d2 = n_d_int + round((w_nA / 2) * sig_fs)
+        for peak in range(len(n_d_int)):
+            try:
+                aux_t_i_nD = np.arange(t[wdw_n_d1[peak]], t[wdw_n_d2[peak]], 1 / fsi)
+                cs = CubicSpline(t[wdw_n_d1[peak]:wdw_n_d2[peak]], sig_filtered[wdw_n_d1[peak]:wdw_n_d2[peak]])
+                aux_ppg_i_nD = cs(aux_t_i_nD)
+                pos_n_D = np.argmax(aux_ppg_i_nD)
+                n_d[peak] = aux_t_i_nD[pos_n_D]
+            except InterpolationError:
+                pass
+    else:
+        n_d = np.divide(n_d_int, sig_fs)
+
+    return n_d
 
 
 def adaptive_thresholding(sig_filt, sig_fs, alfa, refract, tao_rr, thr_incidences):
@@ -242,7 +266,7 @@ def adaptive_thresholding(sig_filt, sig_fs, alfa, refract, tao_rr, thr_incidence
         else:
             thres[kk:] = vmax - (vmax - vfall) / fall_end * (n[kk:] - kk)
 
-    n_d = np.unique(np.concatenate([n_d, peaks_added]))
+    n_d = np.unique(np.concatenate([n_d, peaks_added])).astype(int)
     return n_d, thres
 
 
@@ -479,7 +503,7 @@ def process_signal(
     ppg_filtered = remove_impulse_artifacts(ppg_filtered)
 
     # Pulse detection
-    ppg_tk = ppg_pulse_detection(ppg_filtered, fs, plotflag=False)
+    ppg_tk = ppg_pulse_detection(ppg_filtered, fs, plotflag=False, fine_search=True)
 
     # HRV
     time_metrics(ppg_tk)
