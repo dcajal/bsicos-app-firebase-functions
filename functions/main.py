@@ -2,6 +2,7 @@ import os
 import firebase_admin
 import numpy as np
 import math
+import json
 from firebase_functions import storage_fn
 from firebase_admin import credentials, storage
 from firebase_functions.options import MemoryOption
@@ -9,10 +10,13 @@ from matplotlib import pyplot as plt
 from scipy import signal
 from scipy.interpolate import PchipInterpolator, CubicSpline
 from configparser import InterpolationError
+from google.cloud import storage as gcs
+from uuid import uuid4
 
 cred = credentials.Certificate("./serviceAccountKey.json")
 firebase_admin.initialize_app(cred, {'storageBucket': 'bsicos-app.appspot.com'})
-
+storage_client = gcs.Client()
+bucket = storage_client.bucket('bsicos-app.appspot.com')
 
 # noinspection PyTupleAssignmentBalance
 def filtering_and_normalization(sig, sig_fs):
@@ -419,6 +423,14 @@ def time_metrics(tk):
     sdsd = 1000 * np.nanstd(dRR)  # (ms)
     pnn50 = 100 * (np.sum(np.abs(dRR) > 0.05)) / np.sum(~np.isnan(dRR))  # (%)
 
+    results = {
+        "MHR [beats/min]": mhr,
+        "SDNN [ms]": sdnn,
+        "RMSSD [ms]": rmssd,
+        "SDSD [ms]": sdsd,
+        "pNN50": pnn50
+    }
+
     # Print metrics
     print("MHR: %.2f beats/min" % mhr)
     print("SDNN: %.2f ms" % sdnn)
@@ -426,6 +438,7 @@ def time_metrics(tk):
     print("SDSD: %.2f ms" % sdsd)
     print("pNN50: %.2f%%" % pnn50)
 
+    return results
 
 def compute_threshold(rr):
     wind = 29
@@ -462,6 +475,22 @@ def plot_signal(x, y):
     plt.show()
 
 
+def save_results_to_storage(results, results_file_path):
+    """Save the processing results to Firebase Storage."""
+    blob = bucket.blob(results_file_path)
+
+    # Add metadata to the blob. Needed for generate tokens.
+    token = uuid4()
+    metadata = {"firebaseStorageDownloadTokens": token}
+    blob.metadata = metadata
+
+    # Write results to the blob
+    json_data = '\n'.join([f"{key}: {value}" for key, value in results.items()])
+    blob.upload_from_string(json_data)
+
+    print(f"Results saved at: {results_file_path}")
+    
+
 @storage_fn.on_object_finalized(region="europe-west1", memory=MemoryOption.MB_512)
 def process_signal(
     event: storage_fn.CloudEvent[storage_fn.StorageObjectData],  
@@ -478,7 +507,7 @@ def process_signal(
     print(f"Processing PPG file. ({file_path})")   
 
     # Load file
-    bucket = storage.bucket()
+    bucket = storage_client.bucket('bsicos-app.appspot.com')
     file_blob = bucket.get_blob(file_path)
     file_text = file_blob.download_as_text()
     file = open('temp.txt', 'w')  # Create 'temp.txt' file
@@ -487,7 +516,10 @@ def process_signal(
 
     # Generate data matrix and separate arrays
     data_matrix = np.loadtxt(file.name, delimiter=',', skiprows=1)
-    os.remove(file.name)  # Remove 'temp.txt' file
+    try:
+        os.remove(file.name)  # Remove 'temp.txt' file
+    except Exception as e:
+        print(f"Error occurred while removing the temporary file: {str(e)}")
     green = data_matrix[:, 1]
     unixtimestamps = data_matrix[:, 3]
 
@@ -503,8 +535,17 @@ def process_signal(
     ppg_filtered = remove_impulse_artifacts(ppg_filtered)
 
     # Pulse detection
+    print("Detecting pulses...")
     ppg_tk = ppg_pulse_detection(ppg_filtered, fs, plotflag=False, fine_search=True)
 
     # HRV
-    time_metrics(ppg_tk)
+    print("Computing HRV metrics...")
+    td_results = time_metrics(ppg_tk)
     # ppg_tn = gap_correction(ppg_tk, False)
+
+    print("Processing finished. Saving results...")
+    results_file_path = os.path.splitext(file_path)[0]
+    results_file_path = results_file_path.split('/')[-2:]
+    results_file_path = '/'.join(results_file_path)
+    results_file_path = f"resultados/{results_file_path}_results.txt"
+    save_results_to_storage(td_results, results_file_path)
