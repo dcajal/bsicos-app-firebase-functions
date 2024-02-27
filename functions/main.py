@@ -422,6 +422,12 @@ def time_metrics(tk):
     rmssd = 1000 * np.sqrt(np.sum(np.square(dRR[~np.isnan(dRR)])) / dRR[~np.isnan(dRR)].size)  # (ms)
     sdsd = 1000 * np.nanstd(dRR)  # (ms)
     pnn50 = 100 * (np.sum(np.abs(dRR) > 0.05)) / np.sum(~np.isnan(dRR))  # (%)
+    
+    mhr = int(round(mhr))
+    sdnn = int(round(sdnn))
+    rmssd = int(round(rmssd))
+    sdsd = int(round(sdsd))
+    pnn50 = int(round(pnn50))
 
     results = {
         "MHR [beats/min]": mhr,
@@ -432,11 +438,11 @@ def time_metrics(tk):
     }
 
     # Print metrics
-    print("MHR: %.2f beats/min" % mhr)
-    print("SDNN: %.2f ms" % sdnn)
-    print("RMSSD: %.2f ms" % rmssd)
-    print("SDSD: %.2f ms" % sdsd)
-    print("pNN50: %.2f%%" % pnn50)
+    print("MHR: %d beats/min" % mhr)
+    print("SDNN: %d ms" % sdnn)
+    print("RMSSD: %d ms" % rmssd)
+    print("SDSD: %d ms" % sdsd)
+    print("pNN50: %d%%" % pnn50)
 
     return results
 
