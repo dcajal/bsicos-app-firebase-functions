@@ -527,7 +527,7 @@ def process_signal(
     except Exception as e:
         print(f"Error occurred while removing the temporary file: {str(e)}")
     green = data_matrix[:, 1]
-    unixtimestamps = data_matrix[:, 3]
+    unixtimestamps = data_matrix[:, 2]
 
     # Interpolate ppg at fs
     fs = 250
