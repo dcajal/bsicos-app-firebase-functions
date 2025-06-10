@@ -1,8 +1,8 @@
 import os
 import firebase_admin
 import numpy as np
+import pandas as pd
 import math
-import json
 from firebase_functions import storage_fn
 from firebase_admin import credentials, storage
 from firebase_functions.options import MemoryOption
@@ -306,11 +306,7 @@ def debugplots(ax, dtn, gap, upper_threshold, lower_threshold, nfill, correct):
     plt.show(block=False)
 
 
-def gap_correction(tk, debug):
-    f = []
-    ax1 = []
-    ax2 = []
-
+def gap_correction(tk, debug):    
     # Threshold multipliers for upper and lower thresholds
     kupper = 1.5
     kupper_fine = 1 / kupper * 1.15
@@ -520,20 +516,29 @@ def process_signal(
     file.write(file_text)
     file.close()
 
-    # Generate data matrix and separate arrays
-    data_matrix = np.loadtxt(file.name, delimiter=',', skiprows=1)
+    # Generate data matrix
     try:
-        os.remove(file.name)  # Remove 'temp.txt' file
+        data_matrix = pd.read_csv(file.name, sep=',')
+    except Exception as e:
+        print(f"Error occurred while processing the CSV file: {str(e)}")
+        return
+
+    # Convert 'Unix timestamps' to datetime and milliseconds
+    ts_dt = pd.to_datetime(data_matrix['Unix timestamps'])
+    unixtimestamps = (ts_dt.astype('int64') // 1_000_000).to_numpy()
+    red = data_matrix['Red'].to_numpy()
+
+    try:
+        os.remove(file.name)
     except Exception as e:
         print(f"Error occurred while removing the temporary file: {str(e)}")
-    green = data_matrix[:, 1]
-    unixtimestamps = data_matrix[:, 2]
+        return
 
     # Interpolate ppg at fs
     fs = 250
     t_aux = (unixtimestamps - unixtimestamps[0]) / 1000
     t = np.arange(0, t_aux[-1], 1 / fs)
-    cs = CubicSpline(t_aux, -green)
+    cs = CubicSpline(t_aux, -red)
     ppg = cs(t)
 
     # Baseline removal, filtering and normalization of PPG signal
