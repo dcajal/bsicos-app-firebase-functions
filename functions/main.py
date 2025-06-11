@@ -8,29 +8,29 @@ from firebase_admin import credentials
 from firebase_functions.options import MemoryOption
 from scipy import signal
 from scipy.interpolate import PchipInterpolator, CubicSpline
-from configparser import InterpolationError
 from google.cloud import storage as gcs
 from uuid import uuid4
+from typing import Tuple, Dict, Any, Optional
 
 cred = credentials.Certificate("./serviceAccountKey.json")
 firebase_admin.initialize_app(cred, {'storageBucket': 'bsicos-app.appspot.com'})
 storage_client = gcs.Client()
 bucket = storage_client.bucket('bsicos-app.appspot.com')
 
-def filtering_and_normalization(sig, sig_fs):
-    b, a = signal.butter(3, 0.3, btype='highpass', fs=sig_fs)
+def filtering_and_normalization(sig: np.ndarray, sig_fs: float) -> np.ndarray:
+    b, a = signal.butter(3, 0.3, btype='highpass', fs=sig_fs)  # type: ignore
     sig_filtered = signal.filtfilt(b, a, sig)
-    b, a = signal.butter(3, 10, btype='lowpass', fs=sig_fs)
+    b, a = signal.butter(3, 10, btype='lowpass', fs=sig_fs)  # type: ignore
     sig_filtered = signal.filtfilt(b, a, sig_filtered)
     sig_filtered = normalize(sig_filtered)
     return sig_filtered
 
 
-def normalize(x):
+def normalize(x: np.ndarray) -> np.ndarray:
     return (x - np.mean(x)) / np.std(x)
 
 
-def remove_impulse_artifacts(sig):
+def remove_impulse_artifacts(sig: np.ndarray) -> np.ndarray:
     # Square of second derivative
     aux = np.diff(np.diff(sig)) ** 2
     aux = np.insert(aux, 0, aux[0])
@@ -59,7 +59,7 @@ def remove_impulse_artifacts(sig):
     return output
 
 
-def ppg_pulse_detection(sig, sig_fs, fine_search):
+def ppg_pulse_detection(sig: np.ndarray, sig_fs: float, fine_search: bool) -> np.ndarray:
     # Linear-phase FIR filter
     ntaps = 3 * sig_fs + 1  # order + 1
     lpd_fp = 7.9
@@ -99,7 +99,7 @@ def ppg_pulse_detection(sig, sig_fs, fine_search):
                 aux_ppg_i_nD = cs(aux_t_i_nD)
                 pos_n_D = np.argmax(aux_ppg_i_nD)
                 n_d[peak] = aux_t_i_nD[pos_n_D]
-            except InterpolationError:
+            except (ValueError, IndexError):
                 pass
     else:
         n_d = np.divide(n_d_int, sig_fs)
@@ -107,7 +107,7 @@ def ppg_pulse_detection(sig, sig_fs, fine_search):
     return n_d
 
 
-def adaptive_thresholding(sig_filt, sig_fs, alfa, refract, tao_rr, thr_incidences):
+def adaptive_thresholding(sig_filt: np.ndarray, sig_fs: float, alfa: float, refract: float, tao_rr: float, thr_incidences: float) -> Tuple[np.ndarray, np.ndarray]:
     refract = int(round(refract*sig_fs))
     n_d = np.empty(0)
     peaks_added = np.empty(0)
@@ -262,7 +262,7 @@ def adaptive_thresholding(sig_filt, sig_fs, alfa, refract, tao_rr, thr_incidence
     return n_d, thres
 
 
-def nfillgap(tk, gaps, current_gap, nfill):
+def nfillgap(tk: np.ndarray, gaps: np.ndarray, current_gap: int, nfill: int) -> np.ndarray:
     dtk = np.diff(tk)
     gaps = np.delete(gaps, np.where(gaps == current_gap))
     dtk[gaps] = np.nan
@@ -278,7 +278,7 @@ def nfillgap(tk, gaps, current_gap, nfill):
     intervals = intervals[0:-1] * gap / np.nansum(intervals)  # map intervals to gap
     return np.concatenate([tk[0:current_gap+1], tk[current_gap] + np.cumsum(intervals), tk[current_gap+1:]])
 
-def time_metrics(tk):
+def time_metrics(tk: np.ndarray) -> Dict[str, int]:
     rr = np.diff(tk)
     rr[rr == 0] = []  # Remove repeated beats
 
@@ -288,10 +288,10 @@ def time_metrics(tk):
     rr[rr > 1.3*threshold] = np.nan
 
     # Compute time domain indices
-    mhr = np.nanmean(60. / rr)  # (beats / min)
-    sdnn = 1000 * np.nanstd(rr)  # (ms)
+    mhr = np.nanmean(60.0 / rr)  # (beats / min)
+    sdnn = 1000 * np.nanstd(rr, ddof=0)  # (ms)
     rmssd = 1000 * np.sqrt(np.sum(np.square(dRR[~np.isnan(dRR)])) / dRR[~np.isnan(dRR)].size)  # (ms)
-    sdsd = 1000 * np.nanstd(dRR)  # (ms)
+    sdsd = 1000 * np.nanstd(dRR, ddof=0)  # (ms)
     pnn50 = 100 * (np.sum(np.abs(dRR) > 0.05)) / np.sum(~np.isnan(dRR))  # (%)
     
     mhr = int(round(mhr))
@@ -317,7 +317,7 @@ def time_metrics(tk):
 
     return results
 
-def compute_threshold(rr):
+def compute_threshold(rr: np.ndarray) -> np.ndarray:
     wind = 29
     if rr.size < wind:
         wind = rr.size
@@ -327,7 +327,7 @@ def compute_threshold(rr):
     mf[mf > 1.5] = 1.5
     return mf[(wind // 2):-(wind // 2)]
 
-def save_results_to_storage(results, results_file_path):
+def save_results_to_storage(results: Dict[str, int], results_file_path: str) -> None:
     """Save the processing results to Firebase Storage."""
     blob = bucket.blob(results_file_path)
 
@@ -361,6 +361,10 @@ def process_signal(
     # Load file
     bucket = storage_client.bucket('bsicos-app.appspot.com')
     file_blob = bucket.get_blob(file_path)
+    if file_blob is None:
+        print(f"File not found: {file_path}")
+        return
+    
     file_text = file_blob.download_as_text()
     file = open('temp.txt', 'w')  # Create 'temp.txt' file
     file.write(file_text)
