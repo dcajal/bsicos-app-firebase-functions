@@ -375,7 +375,7 @@ def process_signal(
 
     # Convert 'Unix timestamps' to datetime and milliseconds
     ts_dt = pd.to_datetime(data_matrix['Unix timestamps'])
-    unixtimestamps = (ts_dt.astype('int64') // 1_000_000).to_numpy()
+    unixtimestamps = np.array(pd.to_numeric(ts_dt)) // 1_000_000
     red = data_matrix['Red'].to_numpy()
 
     try:

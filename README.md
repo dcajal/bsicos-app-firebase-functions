@@ -8,7 +8,7 @@ Methods for extracting pulse rate variability metrics from smartphone photopleth
 
    ```bash
    cd functions
-   python3.13 -m venv venv
+   python3 -m venv venv
    source venv/bin/activate
    ```
 
