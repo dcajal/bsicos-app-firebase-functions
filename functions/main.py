@@ -6,7 +6,6 @@ import math
 from firebase_functions import storage_fn
 from firebase_admin import credentials, storage
 from firebase_functions.options import MemoryOption
-from matplotlib import pyplot as plt
 from scipy import signal
 from scipy.interpolate import PchipInterpolator, CubicSpline
 from configparser import InterpolationError
@@ -18,7 +17,6 @@ firebase_admin.initialize_app(cred, {'storageBucket': 'bsicos-app.appspot.com'})
 storage_client = gcs.Client()
 bucket = storage_client.bucket('bsicos-app.appspot.com')
 
-# noinspection PyTupleAssignmentBalance
 def filtering_and_normalization(sig, sig_fs):
     b, a = signal.butter(3, 0.3, btype='highpass', fs=sig_fs)
     sig_filtered = signal.filtfilt(b, a, sig)
@@ -61,7 +59,7 @@ def remove_impulse_artifacts(sig):
     return output
 
 
-def ppg_pulse_detection(sig, sig_fs, plotflag, fine_search):
+def ppg_pulse_detection(sig, sig_fs, fine_search):
     # Linear-phase FIR filter
     ntaps = 3 * sig_fs + 1  # order + 1
     lpd_fp = 7.9
@@ -83,16 +81,6 @@ def ppg_pulse_detection(sig, sig_fs, plotflag, fine_search):
     tao_rr = 1
     thr_incidences = 1.5
     n_d_int, threshold = adaptive_thresholding(sig_filtered, sig_fs, alfa, refract, tao_rr, thr_incidences)
-    
-    if plotflag:
-        ax1 = plt.subplot(2, 1, 1)
-        ax1.plot(np.arange(0, sig.size/sig_fs, 1/sig_fs), sig)
-        ax1.plot(n_d_int / sig_fs, sig[n_d_int], 'ro', label='nD')
-        ax2 = plt.subplot(2, 1, 2, sharex=ax1)
-        ax2.plot(np.arange(0, sig_filtered.size/sig_fs, 1/sig_fs), sig_filtered, label='signal')
-        ax2.plot(np.arange(0, sig_filtered.size/sig_fs, 1/sig_fs), threshold, label='threshold')
-        ax2.plot(n_d_int / sig_fs, sig_filtered[n_d_int], 'ro', label='nD')
-        plt.show()
 
     if fine_search:
         n_d = np.empty(len(n_d_int))
@@ -290,23 +278,7 @@ def nfillgap(tk, gaps, current_gap, nfill):
     intervals = intervals[0:-1] * gap / np.nansum(intervals)  # map intervals to gap
     return np.concatenate([tk[0:current_gap+1], tk[current_gap] + np.cumsum(intervals), tk[current_gap+1:]])
 
-
-def debugplots(ax, dtn, gap, upper_threshold, lower_threshold, nfill, correct):
-    ax.cla()
-    ax.stem(dtn)
-    if correct:
-        ax.stem(np.arange(gap, gap+nfill+1), dtn[np.arange(gap, gap+nfill+1)], 'g')
-    else:
-        ax.stem(np.arange(gap, gap+nfill+1), dtn[np.arange(gap, gap+nfill+1)], 'r')
-    ax.set(ylabel='Corrected RR [s]')
-    ax.set(xlabel='Samples')
-    ax.axhline(upper_threshold, color='k')
-    ax.axhline(lower_threshold, color='k')
-    plt.pause(0.5)
-    plt.show(block=False)
-
-
-def gap_correction(tk, debug):    
+def gap_correction(tk):    
     # Threshold multipliers for upper and lower thresholds
     kupper = 1.5
     kupper_fine = 1 / kupper * 1.15
@@ -347,20 +319,10 @@ def gap_correction(tk, debug):
         if not gaps:
             return
 
-    if debug:
-        f, [ax1, ax2] = plt.subplots(2, 1)
-
     nfill = 1  # Start filling with one sample
     while gaps:
         # In each iteration, try to fill with one more sample
         for kk in range(0, gaps.size):
-            if kk == 0 & debug:
-                ax1.cla()
-                ax1.stem(dtn)
-                ax1.stem(gaps, dtn[gaps], 'r')
-                ax1.plot(threshold * kupper, 'k--')
-                ax1.set(ylabel='Original RR [s]')
-
             auxtn = nfillgap(tn, gaps, gaps[kk], nfill)
             auxdtn = np.diff(auxtn)
 
@@ -368,21 +330,10 @@ def gap_correction(tk, debug):
             limit_exceeded = np.any([auxdtn[gaps[kk]:(gaps[kk]+nfill+1)] < klower * threshold_at_gap[kk],
                                      auxdtn[gaps[kk]:(gaps[kk]+nfill+1)] < 0.5])
 
-            if debug:
-                if limit_exceeded:
-                    debugplots(ax2, auxdtn, gaps[kk], kupper_fine * threshold_at_gap[kk], klower * threshold_at_gap[kk],
-                               nfill, False)
-                else:
-                    debugplots(ax2, auxdtn, gaps[kk], kupper_fine * threshold_at_gap[kk], klower * threshold_at_gap[kk],
-                               nfill, correct)
-
             if limit_exceeded:
                 # Check that lower theshold is not exceeded. Use previous nfill instead
                 auxtn = nfillgap(tn, gaps, gaps[kk], nfill - 1)
                 auxdtn = np.diff(auxtn)
-                if debug:
-                    debugplots(ax2, auxdtn, gaps[kk], kupper_fine * threshold_at_gap[kk], klower * threshold_at_gap[kk],
-                               (nfill - 1), True)
                 tn = auxtn
                 gaps = gaps + nfill - 1
             elif correct:
@@ -396,9 +347,6 @@ def gap_correction(tk, debug):
         gaps = np.where((dtn > (threshold * kupper)) & (dtn > 0.5))[0]
         threshold_at_gap = threshold[gaps] * kupper
         nfill = nfill + 1
-
-    if debug:
-        f.clf()
 
     return tn
 
@@ -451,31 +399,6 @@ def compute_threshold(rr):
     mf = signal.medfilt(np.concatenate((np.flipud(rr[0:wind // 2]), rr, np.flipud(rr[-(wind // 2):])))[:], wind)
     mf[mf > 1.5] = 1.5
     return mf[(wind // 2):-(wind // 2)]
-
-
-def plot_response(w, h, title):
-    fig = plt.figure()
-    ax = fig.add_subplot(211)
-    ax.plot(w, np.abs(h))
-    ax.set_xlim(0, 10)
-    ax.grid(True)
-    ax.set_xlabel('Frequency (Hz)')
-    ax.set_ylabel('Gain')
-    ax.set_title(title)
-    ax = fig.add_subplot(212)
-    ax.plot(w, np.angle(h))
-    ax.set_xlim(0, 10)
-    ax.grid(True)
-    ax.set_xlabel('Frequency (Hz)')
-    ax.set_ylabel('Phase')
-    plt.show()
-
-
-def plot_signal(x, y):
-    fig, ax = plt.subplots()
-    ax.plot(x, y, label='data')
-    plt.show()
-
 
 def save_results_to_storage(results, results_file_path):
     """Save the processing results to Firebase Storage."""
@@ -552,7 +475,7 @@ def process_signal(
     # HRV
     print("Computing HRV metrics...")
     td_results = time_metrics(ppg_tk)
-    # ppg_tn = gap_correction(ppg_tk, False)
+    # ppg_tn = gap_correction(ppg_tk)
 
     print("Processing finished. Saving results...")
     results_file_path = os.path.splitext(file_path)[0]
