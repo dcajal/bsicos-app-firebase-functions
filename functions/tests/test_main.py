@@ -4,6 +4,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import unittest
 from unittest.mock import MagicMock, patch
+from typing import Any, cast
 
 import firebase_admin
 # Mock firebase_admin initialization to avoid reading serviceAccountKey.json
@@ -31,13 +32,18 @@ class TestMainFunctionality(unittest.TestCase):
         csv_path = os.path.join(os.path.dirname(__file__), '250610_155821_scppg_30hz.csv')
         with open(csv_path, 'r') as f:
             self.csv_text = f.read()
-        # Create dummy event with data.name matching test CSV path
-        class Data: pass
-        class Event: pass
-        self.event = Event()
-        self.event.data = Data()
+        
+        # Create dummy event with proper typing to match CloudEvent[StorageObjectData]
+        class MockStorageObjectData:
+            def __init__(self, name: str):
+                self.name = name
+        
+        class MockCloudEvent:
+            def __init__(self, data: MockStorageObjectData):
+                self.data = data
+        
         # Use a storage path that ends with hz.csv
-        self.event.data.name = 'functions/tests/250610_155821_scppg_30hz.csv'
+        self.event = MockCloudEvent(MockStorageObjectData('functions/tests/250610_155821_scppg_30hz.csv'))
 
     @patch('main.gcs.Client')
     def test_process_signal(self, mock_gcs_client):
@@ -59,7 +65,9 @@ class TestMainFunctionality(unittest.TestCase):
         mock_storage_client.bucket.return_value = mock_bucket
 
         # Call the function under test
-        main.process_signal(self.event)
+        # Cast to Any to bypass type checking for this test mock
+        event_typed = cast(Any, self.event)
+        main.process_signal(event_typed)
 
         # Check that results are saved to expected path
         expected_out_path = 'resultados/tests/250610_155821_scppg_30hz_results.txt'
