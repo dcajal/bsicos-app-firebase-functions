@@ -39,26 +39,31 @@ class TestMainFunctionality(unittest.TestCase):
         # Use a storage path that ends with hz.csv
         self.event.data.name = 'functions/tests/250610_155821_scppg_30hz.csv'
 
-    @patch('main.storage_client')
-    def test_process_signal(self, mock_storage_client):
+    @patch('main.gcs.Client')
+    def test_process_signal(self, mock_gcs_client):
+        # Mock storage client and buckets
+        mock_storage_client = MagicMock()
+        mock_gcs_client.return_value = mock_storage_client
+        
         # Mock input bucket and blob
-        mock_bucket_in = MagicMock()
+        mock_bucket = MagicMock()
         mock_blob_in = MagicMock()
         mock_blob_in.download_as_text.return_value = self.csv_text
-        mock_bucket_in.get_blob.return_value = mock_blob_in
-        mock_storage_client.bucket.return_value = mock_bucket_in
-        # Mock global output bucket and blob
-        mock_bucket_out = MagicMock()
-        main.bucket = mock_bucket_out
+        mock_bucket.get_blob.return_value = mock_blob_in
+        
+        # Mock output blob for saving results
         mock_blob_out = MagicMock()
-        mock_bucket_out.blob.return_value = mock_blob_out
+        mock_bucket.blob.return_value = mock_blob_out
+        
+        # Configure storage client to return the same bucket for both operations
+        mock_storage_client.bucket.return_value = mock_bucket
 
         # Call the function under test
         main.process_signal(self.event)
 
         # Check that results are saved to expected path
         expected_out_path = 'resultados/tests/250610_155821_scppg_30hz_results.txt'
-        mock_bucket_out.blob.assert_called_once_with(expected_out_path)
+        mock_bucket.blob.assert_called_with(expected_out_path)
         mock_blob_out.upload_from_string.assert_called_once()
 
         # Clean up temporary file if created
