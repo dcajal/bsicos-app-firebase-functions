@@ -14,8 +14,6 @@ from typing import Tuple, Dict
 
 cred = credentials.Certificate("./serviceAccountKey.json")
 firebase_admin.initialize_app(cred, {'storageBucket': 'bsicos-app.appspot.com'})
-storage_client = gcs.Client()
-bucket = storage_client.bucket('bsicos-app.appspot.com')
 
 def filtering_and_normalization(sig: np.ndarray, sig_fs: float) -> np.ndarray:
     b, a = signal.butter(3, 0.3, btype='highpass', fs=sig_fs)  # type: ignore
@@ -329,6 +327,8 @@ def compute_threshold(rr: np.ndarray) -> np.ndarray:
 
 def save_results_to_storage(results: Dict[str, int], results_file_path: str) -> None:
     """Save the processing results to Firebase Storage."""
+    storage_client = gcs.Client()
+    bucket = storage_client.bucket('bsicos-app.appspot.com')
     blob = bucket.blob(results_file_path)
 
     # Add metadata to the blob. Needed for generate tokens.
@@ -359,6 +359,7 @@ def process_signal(
     print(f"Processing PPG file. ({file_path})")   
 
     # Load file
+    storage_client = gcs.Client()
     bucket = storage_client.bucket('bsicos-app.appspot.com')
     file_blob = bucket.get_blob(file_path)
     if file_blob is None:
