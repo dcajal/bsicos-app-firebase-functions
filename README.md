@@ -22,23 +22,32 @@ Methods for extracting pulse rate variability metrics from smartphone photopleth
 3. Run tests:
 
    ```bash
-   cd functions
-   source venv/bin/activate
    pytest tests
    ```
 
 ## Deploying to Firebase
 
-1. Generate production requirements file and ensure only production dependencies are listed:
+1. Download and configure the Firebase service account key:
+
+   - Go to the [Firebase Console](https://console.firebase.google.com/)
+   - Select your project
+   - Go to **Project Settings** (gear icon) → **Service accounts**
+   - Click **Generate new private key**
+   - Download the JSON file and rename it to `serviceAccountKey.json`
+   - Place it in the functions directory: `functions/serviceAccountKey.json`
+
+   **Note**: This file contains sensitive credentials and should never be committed to version control.
+
+2. Generate production requirements file and ensure only production dependencies are listed:
 
    ```bash
    pip freeze > functions/requirements.txt
    ```
 
-2. Deploy the code to Firebase:
+3. Deploy the code to Firebase:
 
    ```bash
    firebase deploy --only functions
    ```
 
-3. Verify the deployment in the Firebase Console.
+4. Verify the deployment in the Firebase Console.
