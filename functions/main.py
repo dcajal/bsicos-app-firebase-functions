@@ -10,7 +10,7 @@ from scipy import signal
 from scipy.interpolate import PchipInterpolator, CubicSpline
 from google.cloud import storage as gcs
 from uuid import uuid4
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict
 
 cred = credentials.Certificate("./serviceAccountKey.json")
 firebase_admin.initialize_app(cred, {'storageBucket': 'bsicos-app.appspot.com'})
@@ -345,7 +345,7 @@ def save_results_to_storage(results: Dict[str, int], results_file_path: str) -> 
 
 @storage_fn.on_object_finalized(region="europe-west1", memory=MemoryOption.MB_512)
 def process_signal(
-    event: storage_fn.CloudEvent[storage_fn.StorageObjectData],  
+    event: storage_fn.CloudEvent[storage_fn.StorageObjectData],   # type: ignore
 ):
     """When a file is uploaded in the Storage bucket, check if PPG and process."""
 
