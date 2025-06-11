@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import math
 from firebase_functions import storage_fn
-from firebase_admin import credentials, storage
+from firebase_admin import credentials
 from firebase_functions.options import MemoryOption
 from scipy import signal
 from scipy.interpolate import PchipInterpolator, CubicSpline
