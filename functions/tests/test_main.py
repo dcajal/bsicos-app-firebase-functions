@@ -56,42 +56,47 @@ class TestMainFunctionality(unittest.TestCase):
         mock_data = MockStorageObjectData(file_path)
         self.event = MockCloudEvent(mock_data)
 
-    @patch('main.gcs.Client')
-    def test_process_signal(self, mock_gcs_client):
+    @patch('ppg_processor.load_file_from_storage')
+    @patch('ppg_processor.save_results_to_storage')
+    def test_process_signal(self, mock_save_results, mock_load_file):
         """Test the main signal processing function with mocked storage."""
-        self._setup_storage_mocks(mock_gcs_client)
+        self._setup_storage_mocks(mock_load_file, mock_save_results)
         self._execute_signal_processing()
-        self._verify_results_saved()
+        self._verify_results_saved(mock_save_results)
         self._cleanup_temp_files()
     
-    def _setup_storage_mocks(self, mock_gcs_client):
+    def _setup_storage_mocks(self, mock_load_file, mock_save_results):
         """Configure all storage-related mocks."""
-        # Create mock storage client and bucket
-        self.mock_storage_client = MagicMock()
-        mock_gcs_client.return_value = self.mock_storage_client
+        # Mock file loading to return test CSV content
+        mock_load_file.return_value = self.csv_text
         
-        self.mock_bucket = MagicMock()
-        self.mock_storage_client.bucket.return_value = self.mock_bucket
-        
-        # Mock input blob (file download)
-        mock_blob_in = MagicMock()
-        mock_blob_in.download_as_text.return_value = self.csv_text
-        self.mock_bucket.get_blob.return_value = mock_blob_in
-        
-        # Mock output blob (results upload)
-        self.mock_blob_out = MagicMock()
-        self.mock_bucket.blob.return_value = self.mock_blob_out
+        # Mock save results (no return value needed)
+        mock_save_results.return_value = None
     
     def _execute_signal_processing(self):
         """Execute the main signal processing function."""
         event_typed = cast(Any, self.event)
         main.process_signal(event_typed)
     
-    def _verify_results_saved(self):
+    def _verify_results_saved(self, mock_save_results):
         """Verify that results were saved to the expected storage path."""
+        # Verify that save_results_to_storage was called
+        mock_save_results.assert_called_once()
+        
+        # Get the arguments passed to save_results_to_storage
+        call_args = mock_save_results.call_args
+        results_dict = call_args[0][0]  # First argument (results dictionary)
+        file_path = call_args[0][1]     # Second argument (file path)
+        
+        # Verify the results dictionary contains expected keys
+        expected_keys = ["MHR [beats/min]", "SDNN [ms]", "RMSSD [ms]", "SDSD [ms]", "pNN50"]
+        for key in expected_keys:
+            self.assertIn(key, results_dict)
+            self.assertIsInstance(results_dict[key], int)
+        
+        # Verify the file path is correct
         expected_path = 'resultados/tests/250610_155821_scppg_30hz_results.txt'
-        self.mock_bucket.blob.assert_called_with(expected_path)
-        self.mock_blob_out.upload_from_string.assert_called_once()
+        self.assertEqual(file_path, expected_path)
     
     def _cleanup_temp_files(self):
         """Clean up any temporary files created during testing."""
